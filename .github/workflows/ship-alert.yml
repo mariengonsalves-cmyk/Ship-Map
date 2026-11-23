@@ -2,7 +2,7 @@ name: Ship proximity alert
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes (GitHub may delay runs a few minutes)
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       test:
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 11
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +31,7 @@ jobs:
       - run: pip install websockets
 
       - name: Check ship distance
-        run: python proximity_alert.py
+        run: python -u proximity_alert.py
         env:
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
