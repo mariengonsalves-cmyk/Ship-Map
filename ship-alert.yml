@@ -31,7 +31,7 @@ jobs:
       - run: pip install websockets
 
       - name: Check ship distance
-        run: python proximity_alert.py
+        run: python -u proximity_alert.py
         env:
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
