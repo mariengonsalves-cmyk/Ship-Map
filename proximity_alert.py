@@ -122,6 +122,8 @@ async def listen(api_key, seconds):
                     raw = await asyncio.wait_for(ws.recv(), timeout=max(1, deadline - time.time()))
                     msg = json.loads(raw)
                     received += 1
+                    if received <= 5:
+                        print("RAW:", str(raw)[:400])
                     if "error" in msg:
                         print("AISstream error:", msg["error"])
                         print(f"Feed messages received: {received}")
