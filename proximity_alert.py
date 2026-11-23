@@ -91,7 +91,10 @@ def notify(topic, title, message, priority="default", tags="ship"):
 
 
 async def listen(api_key, seconds):
-    """Collect the latest position of each ship. Returns {mmsi: (lat, lon)}."""
+    """Collect the latest position of each ship. Returns {mmsi: (lat, lon)}.
+
+    Reconnects after any connection problem until the time window ends.
+    """
     import websockets  # pip install websockets
 
     wanted = {MY_SHIP["mmsi"], HER_SHIP["mmsi"]}
@@ -104,27 +107,39 @@ async def listen(api_key, seconds):
     }
     deadline = time.time() + seconds
     received = 0
-    async with websockets.connect("wss://stream.aisstream.io/v0/stream") as ws:
-        await ws.send(json.dumps(subscription))
-        while time.time() < deadline and len(found) < len(wanted):
-            try:
-                raw = await asyncio.wait_for(ws.recv(), timeout=max(1, deadline - time.time()))
-            except asyncio.TimeoutError:
-                break
-            msg = json.loads(raw)
-            received += 1
-            if "error" in msg:
-                print("AISstream error:", msg["error"])
-                break
-            try:
-                mmsi = str(msg["MetaData"]["MMSI"])
-                report = msg["Message"]["PositionReport"]
-                lat, lon = report["Latitude"], report["Longitude"]
-            except (KeyError, TypeError):
-                continue
-            if mmsi in wanted and abs(lat) <= 90 and abs(lon) <= 180:
-                found[mmsi] = (lat, lon)
-                print(f"Got position for {mmsi}: {lat:.4f}, {lon:.4f}")
+    attempt = 0
+    while time.time() < deadline and len(found) < len(wanted):
+        attempt += 1
+        try:
+            async with websockets.connect(
+                "wss://stream.aisstream.io/v0/stream",
+                open_timeout=30,
+                ping_interval=20,
+            ) as ws:
+                print(f"Connected to AISstream (attempt {attempt}).")
+                await ws.send(json.dumps(subscription))
+                while time.time() < deadline and len(found) < len(wanted):
+                    raw = await asyncio.wait_for(ws.recv(), timeout=max(1, deadline - time.time()))
+                    msg = json.loads(raw)
+                    received += 1
+                    if "error" in msg:
+                        print("AISstream error:", msg["error"])
+                        print(f"Feed messages received: {received}")
+                        return found
+                    try:
+                        mmsi = str(msg["MetaData"]["MMSI"])
+                        report = msg["Message"]["PositionReport"]
+                        lat, lon = report["Latitude"], report["Longitude"]
+                    except (KeyError, TypeError):
+                        continue
+                    if mmsi in wanted and abs(lat) <= 90 and abs(lon) <= 180:
+                        found[mmsi] = (lat, lon)
+                        print(f"Got position for {mmsi}: {lat:.4f}, {lon:.4f}")
+        except asyncio.TimeoutError:
+            break  # the listening window ended while waiting for a message
+        except Exception as exc:  # connection refused, handshake timeout, dropped link
+            print(f"Connection problem ({type(exc).__name__}: {exc}). Retrying in 10 s.")
+            await asyncio.sleep(10)
     print(f"Feed messages received: {received}")
     return found
 
