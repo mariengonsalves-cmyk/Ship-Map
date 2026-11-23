@@ -25,7 +25,7 @@ HER_SHIP = {"name": "Margaritaville at Sea Paradise", "mmsi": "311000969"}
 
 THRESHOLD_NM = float(os.environ.get("THRESHOLD_NM", "25"))
 HYSTERESIS_NM = 2.0  # must be this far outside the range before "left range" fires
-LISTEN_SECONDS = int(os.environ.get("LISTEN_SECONDS", "200"))
+LISTEN_SECONDS = int(os.environ.get("LISTEN_SECONDS", "480"))
 STATE_FILE = "state.json"
 POSITIONS_FILE = "positions.json"  # read by index.html (the live map page)
 EARTH_RADIUS_NM = 3440.065
@@ -103,6 +103,7 @@ async def listen(api_key, seconds):
         "FilterMessageTypes": ["PositionReport"],
     }
     deadline = time.time() + seconds
+    received = 0
     async with websockets.connect("wss://stream.aisstream.io/v0/stream") as ws:
         await ws.send(json.dumps(subscription))
         while time.time() < deadline and len(found) < len(wanted):
@@ -111,6 +112,7 @@ async def listen(api_key, seconds):
             except asyncio.TimeoutError:
                 break
             msg = json.loads(raw)
+            received += 1
             if "error" in msg:
                 print("AISstream error:", msg["error"])
                 break
@@ -123,6 +125,7 @@ async def listen(api_key, seconds):
             if mmsi in wanted and abs(lat) <= 90 and abs(lon) <= 180:
                 found[mmsi] = (lat, lon)
                 print(f"Got position for {mmsi}: {lat:.4f}, {lon:.4f}")
+    print(f"Feed messages received: {received}")
     return found
 
 
