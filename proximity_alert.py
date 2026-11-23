@@ -146,6 +146,42 @@ async def listen(api_key, seconds):
     return found
 
 
+async def diagnose(api_key, seconds=60):
+    """When a run finds nothing, scan Florida/Bahamas to see whether the feed has coverage there."""
+    import websockets
+
+    wanted = {MY_SHIP["mmsi"], HER_SHIP["mmsi"]}
+    sub = {"APIKey": api_key, "BoundingBoxes": [[[22, -84], [31, -74]]]}
+    deadline = time.time() + seconds
+    total, mmsis, hits = 0, set(), {}
+    try:
+        async with websockets.connect(
+            "wss://stream.aisstream.io/v0/stream", open_timeout=30, ping_interval=20
+        ) as ws:
+            await ws.send(json.dumps(sub))
+            while time.time() < deadline:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=max(1, deadline - time.time()))
+                except asyncio.TimeoutError:
+                    break
+                msg = json.loads(raw)
+                total += 1
+                meta = msg.get("MetaData") or {}
+                mmsi = str(meta.get("MMSI", ""))
+                if mmsi:
+                    mmsis.add(mmsi)
+                name = (meta.get("ShipName") or "").strip().upper()
+                if mmsi in wanted or "BRILLIANCE" in name or "MARGARITAVILLE" in name:
+                    hits[mmsi] = name
+    except Exception as exc:
+        print(f"DIAG connection problem ({type(exc).__name__}: {exc})")
+    print(f"DIAG: {total} messages from {len(mmsis)} different ships in the Florida/Bahamas area in {seconds} s.")
+    if hits:
+        print("DIAG: matching ships heard:", hits)
+    else:
+        print("DIAG: neither of your ships was heard in that area.")
+
+
 def main():
     topic = os.environ.get("NTFY_TOPIC")
 
@@ -167,6 +203,7 @@ def main():
     if not (mine and hers):
         missing = [s["name"] for s in (MY_SHIP, HER_SHIP) if s["mmsi"] not in found]
         print("No position received for:", ", ".join(missing), "- skipping this run.")
+        asyncio.run(diagnose(api_key))
         return
 
     distance = haversine_nm(*mine, *hers)
