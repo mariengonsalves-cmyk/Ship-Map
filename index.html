@@ -49,6 +49,7 @@ h1 { margin: 0; font: 700 18px/1.2 var(--font-display); letter-spacing: .01em; }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .dot.mine { background: var(--mine); } .dot.hers { background: var(--hers); }
 .ship-row b { font-weight: 600; } .ship-row span { color: var(--muted); font-variant-numeric: tabular-nums; }
+#map.darkmap .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
 #map { flex: 1; min-height: 320px; background: var(--bg); }
 .msg { padding: 8px max(16px, env(safe-area-inset-left, 0px)); font-size: 13px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; justify-content: space-between; }
 .msg .src { font-weight: 600; color: var(--fg); }
@@ -147,10 +148,10 @@ button.secondary { background: transparent; color: var(--fg); border: 1px solid 
   }
   function setTiles() {
     if (tiles) map.removeLayer(tiles);
-    var style = isDark() ? "dark_all" : "light_all";
-    tiles = L.tileLayer("https://{s}.basemaps.cartocdn.com/" + style + "/{z}/{x}/{y}{r}.png", {
-      maxZoom: 12, subdomains: "abcd",
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    document.getElementById("map").classList.toggle("darkmap", isDark());
+    tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 12,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
   }
   setTiles();
