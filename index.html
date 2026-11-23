@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ship Proximity Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: full-height chart with a floating instrument panel (distance readout) over the top. */
+:root {
+  --bg: #eef3f6; --panel: #ffffff; --fg: #10222e; --muted: #5a6e7b; --line: #d3dee5;
+  --mine: #1d6fd1; --hers: #e0523a; --ok: #16895a; --ok-bg: #dff3e9; --warn: #8a5a00;
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1820; --panel: #13242f; --fg: #e6f0f5; --muted: #8aa1ae; --line: #264150;
+    --mine: #5aa7ff; --hers: #ff7a62; --ok: #4fd69a; --ok-bg: #12382a; --warn: #f0c060; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1820; --panel: #13242f; --fg: #e6f0f5; --muted: #8aa1ae; --line: #264150;
+  --mine: #5aa7ff; --hers: #ff7a62; --ok: #4fd69a; --ok-bg: #12382a; --warn: #f0c060; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font-body);
+  display: flex; flex-direction: column;
+  padding-left: max(0px, env(safe-area-inset-left, 0px)); padding-right: max(0px, env(safe-area-inset-right, 0px));
+}
+header {
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 12px max(16px, env(safe-area-inset-left, 0px)) 12px max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between;
+}
+h1 { margin: 0; font: 700 18px/1.2 var(--font-display); letter-spacing: .01em; }
+.readout { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.dist { font: 700 34px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.dist small { font: 500 14px var(--font-body); color: var(--muted); margin-left: 4px; }
+.pill { padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; background: var(--line); color: var(--muted); }
+.pill.near { background: var(--ok-bg); color: var(--ok); }
+.pill.far { background: var(--line); color: var(--fg); }
+.ships { display: flex; flex-wrap: wrap; gap: 6px 22px; min-width: 0; }
+.ship-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dot.mine { background: var(--mine); } .dot.hers { background: var(--hers); }
+.ship-row b { font-weight: 600; } .ship-row span { color: var(--muted); font-variant-numeric: tabular-nums; }
+#map { flex: 1; min-height: 320px; background: var(--bg); }
+.msg { padding: 8px max(16px, env(safe-area-inset-left, 0px)); font-size: 13px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; justify-content: space-between; }
+.msg .src { font-weight: 600; color: var(--fg); }
+.msg.warn .src { color: var(--warn); }
+details { background: var(--panel); border-top: 1px solid var(--line); padding: 0 max(16px, env(safe-area-inset-left, 0px)); padding-bottom: max(0px, env(safe-area-inset-bottom, 0px)); }
+summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 20px; padding-bottom: 14px; }
+.settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+input[type="text"], input[type="password"], input[type="number"] {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 0; width: 100%;
+}
+button { font: 600 13px var(--font-body); cursor: pointer; color: #fff; background: var(--mine); border: 0; border-radius: 6px; padding: 9px 14px; }
+button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+:focus-visible { outline: 2px solid var(--mine); outline-offset: 2px; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.note { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin: 0; }
+.banner { display: none; background: var(--ok); color: #04210f; padding: 10px 16px; font-weight: 700; text-align: center; }
+.banner.show { display: block; }
+.mk { position: relative; width: 0; height: 0; }
+.mk i { position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.4); }
+.mk.mine i { background: var(--mine); } .mk.hers i { background: var(--hers); }
+.mk b { position: absolute; left: 14px; top: -10px; white-space: nowrap; font: 600 12px var(--font-body); color: #10222e; background: rgba(255,255,255,.92); padding: 1px 6px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+@media (prefers-reduced-motion: no-preference) { .banner.show { animation: pop .4s ease-out; } @keyframes pop { from { transform: translateY(-100%); } to { transform: none; } } }
+</style>
+</head>
+<body>
+<div class="banner" id="banner" role="status">The ships are within range of each other!</div>
+<header>
+  <div>
+    <h1>Ship Proximity Map</h1>
+  </div>
+  <div class="readout">
+    <div class="dist" id="dist">--<small>NM apart</small></div>
+    <span class="pill" id="pill">Waiting for positions</span>
+  </div>
+  <div class="ships">
+    <div class="ship-row"><i class="dot mine"></i><b>Brilliance of the Seas</b><span id="age-311361000">no signal yet</span></div>
+    <div class="ship-row"><i class="dot hers"></i><b>Margaritaville at Sea Paradise</b><span id="age-311000969">no signal yet</span></div>
+  </div>
+</header>
+<div id="map" aria-label="Map of both ships"></div>
+<div class="msg" id="msg"><span><span class="src" id="src">Starting</span> <span id="srcdetail"></span></span><button class="secondary" id="fit" type="button">Show both ships</button></div>
+<details id="settings">
+  <summary>Settings</summary>
+  <div class="settings">
+    <label for="key">AISstream API key (stored only in this browser)
+      <input id="key" type="password" autocomplete="off" placeholder="Paste key for the live feed">
+    </label>
+    <label for="thr">Nearby distance (NM)
+      <input id="thr" type="number" min="1" max="500" step="1" value="25">
+    </label>
+    <div class="btns">
+      <button id="save" type="button">Save and connect</button>
+      <button id="sound" class="secondary" type="button">Sound alert: off</button>
+    </div>
+    <p class="note">With a key, the page listens to the live AIS feed. Without one, or if the browser is blocked from the feed, it shows the latest positions saved by the scheduled check (about every 10 minutes). Ships out of range of AIS receivers can show no signal for a while.</p>
+  </div>
+</details>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var SHIPS = {
+    "311361000": { name: "Brilliance of the Seas", short: "Brilliance", cls: "mine", color: "#1d6fd1" },
+    "311000969": { name: "Margaritaville at Sea Paradise", short: "Margaritaville", cls: "hers", color: "#e0523a" }
+  };
+  var MINE = "311361000", HERS = "311000969";
+  var R_NM = 3440.065, M_PER_NM = 1852;
+  var pos = {};            // mmsi -> {lat, lon, t}
+  var markers = {}, line = null, circle = null;
+  var ws = null, wsEverOpened = false, wsRetry = null, source = "none";
+  var wasInRange = null, soundOn = false, fitted = false, audioCtx = null;
+
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+  var $ = function (id) { return document.getElementById(id); };
+  var threshold = parseFloat(store("thr")) || 25;
+  $("thr").value = threshold;
+  $("key").value = store("key") || "";
+  soundOn = store("sound") === "1";
+  $("sound").textContent = "Sound alert: " + (soundOn ? "on" : "off");
+
+  function haversineNm(a, b) {
+    var r = Math.PI / 180, dp = (b.lat - a.lat) * r, dl = (b.lon - a.lon) * r;
+    var x = Math.sin(dp / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dl / 2) ** 2;
+    return 2 * R_NM * Math.asin(Math.sqrt(x));
+  }
+
+  // ---- map ----
+  var map = L.map("map", { worldCopyJump: true, zoomControl: true }).setView([25.5, -77.5], 6);
+  var tiles = null;
+  var dark = window.matchMedia("(prefers-color-scheme: dark)");
+  function isDark() {
+    var t = document.documentElement.getAttribute("data-theme");
+    return t ? t === "dark" : dark.matches;
+  }
+  function setTiles() {
+    if (tiles) map.removeLayer(tiles);
+    var style = isDark() ? "dark_all" : "light_all";
+    tiles = L.tileLayer("https://{s}.basemaps.cartocdn.com/" + style + "/{z}/{x}/{y}{r}.png", {
+      maxZoom: 12, subdomains: "abcd",
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(map);
+  }
+  setTiles();
+  if (dark.addEventListener) dark.addEventListener("change", setTiles);
+
+  function icon(id) {
+    var s = SHIPS[id];
+    return L.divIcon({ className: "", iconSize: [0, 0], html: '<div class="mk ' + s.cls + '"><i></i><b>' + s.short + '</b></div>' });
+  }
+
+  function ago(t) {
+    var s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 90) return s + " s ago";
+    var m = Math.round(s / 60);
+    if (m < 90) return m + " min ago";
+    var h = Math.round(m / 60);
+    return h < 48 ? h + " h ago" : Math.round(h / 24) + " d ago";
+  }
+
+  function setPos(mmsi, lat, lon, t) {
+    if (!SHIPS[mmsi] || !isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+    if (pos[mmsi] && pos[mmsi].t > t) return;
+    pos[mmsi] = { lat: lat, lon: lon, t: t };
+  }
+
+  function render() {
+    Object.keys(SHIPS).forEach(function (id) {
+      var p = pos[id];
+      if (!p) return;
+      if (!markers[id]) markers[id] = L.marker([p.lat, p.lon], { icon: icon(id), keyboard: false }).addTo(map);
+      else markers[id].setLatLng([p.lat, p.lon]);
+    });
+    var a = pos[MINE], b = pos[HERS];
+    if (a) {
+      if (!circle) circle = L.circle([a.lat, a.lon], { radius: threshold * M_PER_NM, color: SHIPS[MINE].color, weight: 1.5, dashArray: "6 6", fillOpacity: 0.06 }).addTo(map);
+      else { circle.setLatLng([a.lat, a.lon]); circle.setRadius(threshold * M_PER_NM); }
+    }
+    if (a && b) {
+      var pts = [[a.lat, a.lon], [b.lat, b.lon]];
+      if (!line) line = L.polyline(pts, { color: "#888", weight: 2, dashArray: "2 6" }).addTo(map); else line.setLatLngs(pts);
+      var d = haversineNm(a, b), near = d <= threshold;
+      $("dist").innerHTML = d.toFixed(1) + "<small>NM apart</small>";
+      var pill = $("pill");
+      pill.textContent = near ? "Nearby, within " + threshold + " NM" : "Outside " + threshold + " NM";
+      pill.className = "pill " + (near ? "near" : "far");
+      $("banner").className = "banner" + (near ? " show" : "");
+      if (wasInRange === false && near) alertNearby(d);
+      wasInRange = near;
+      if (!fitted) { fitted = true; map.fitBounds(L.latLngBounds(pts).pad(0.4), { maxZoom: 9 }); }
+    } else {
+      $("pill").textContent = "Waiting for both ships";
+      $("pill").className = "pill";
+      if (!fitted && (a || b)) { var p1 = a || b; map.setView([p1.lat, p1.lon], 7); }
+    }
+    updateAges();
+  }
+
+  function updateAges() {
+    Object.keys(SHIPS).forEach(function (id) {
+      $("age-" + id).textContent = pos[id] ? "heard " + ago(pos[id].t) : "no signal yet";
+    });
+  }
+  setInterval(updateAges, 15000);
+
+  function beep() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      [660, 880].forEach(function (f, i) {
+        var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.frequency.value = f; o.connect(g); g.connect(audioCtx.destination);
+        g.gain.setValueAtTime(0.15, audioCtx.currentTime + i * 0.25);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.25 + 0.22);
+        o.start(audioCtx.currentTime + i * 0.25); o.stop(audioCtx.currentTime + i * 0.25 + 0.23);
+      });
+    } catch (e) {}
+  }
+  function alertNearby(d) {
+    if (soundOn) beep();
+    try {
+      if ("Notification" in window && Notification.permission === "granted") new Notification("Ships are close", { body: "About " + d.toFixed(1) + " NM apart." });
+    } catch (e) {}
+  }
+
+  function setSource(name, detail, warn) {
+    source = name;
+    $("src").textContent = name;
+    $("srcdetail").textContent = detail || "";
+    $("msg").className = "msg" + (warn ? " warn" : "");
+  }
+
+  // ---- scheduled file fallback ----
+  function loadFile() {
+    return fetch("positions.json?" + Date.now(), { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (j) {
+      var ships = (j && j.ships) || {};
+      Object.keys(ships).forEach(function (id) {
+        var s = ships[id], t = Date.parse(s.time || j.updated);
+        setPos(id, +s.lat, +s.lon, isFinite(t) ? t : Date.now());
+      });
+      if (source !== "Live feed") setSource("Scheduled check", "Positions saved by the scheduler, refreshed every minute here.", false);
+      render();
+    }).catch(function () {
+      if (source === "none" || source === "Starting") setSource("No data yet", "Add your AISstream key in Settings, or wait for the first scheduled check to finish.", true);
+    });
+  }
+  loadFile();
+  setInterval(loadFile, 60000);
+
+  // ---- live feed ----
+  function connect() {
+    var key = ($("key").value || "").trim();
+    if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; }
+    clearTimeout(wsRetry);
+    if (!key) return;
+    wsEverOpened = false;
+    setSource("Connecting", "Opening the live AIS feed...", false);
+    try { ws = new WebSocket("wss://stream.aisstream.io/v0/stream"); } catch (e) { feedFailed(); return; }
+    ws.onopen = function () {
+      wsEverOpened = true;
+      ws.send(JSON.stringify({
+        APIKey: key,
+        BoundingBoxes: [[[-90, -180], [90, 180]]],
+        FiltersShipMMSI: [MINE, HERS],
+        FilterMessageTypes: ["PositionReport"]
+      }));
+      setSource("Live feed", "Connected. Ships report every few seconds to a few minutes.", false);
+    };
+    ws.onmessage = function (ev) {
+      Promise.resolve(typeof ev.data === "string" ? ev.data : ev.data.text()).then(function (txt) {
+        var m; try { m = JSON.parse(txt); } catch (e) { return; }
+        if (m.error) { setSource("Feed error", String(m.error), true); return; }
+        try {
+          var id = String(m.MetaData.MMSI), r = m.Message.PositionReport;
+          setPos(id, r.Latitude, r.Longitude, Date.now());
+          render();
+        } catch (e) {}
+      });
+    };
+    ws.onerror = function () { if (!wsEverOpened) feedFailed(); };
+    ws.onclose = function () {
+      if (!wsEverOpened) return;
+      setSource("Reconnecting", "The live feed dropped. Trying again in 10 seconds.", true);
+      wsRetry = setTimeout(connect, 10000);
+    };
+  }
+  function feedFailed() {
+    setSource("Live feed unavailable", "This browser could not connect to AISstream (key wrong, or direct browser access is blocked). Showing scheduled positions instead.", true);
+    loadFile();
+  }
+
+  // ---- controls ----
+  $("save").addEventListener("click", function () {
+    store("key", ($("key").value || "").trim());
+    var t = parseFloat($("thr").value);
+    threshold = t > 0 ? t : 25; store("thr", String(threshold));
+    wasInRange = null; render(); connect();
+    try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
+  });
+  $("sound").addEventListener("click", function () {
+    soundOn = !soundOn; store("sound", soundOn ? "1" : "0");
+    $("sound").textContent = "Sound alert: " + (soundOn ? "on" : "off");
+    if (soundOn) beep();
+  });
+  $("fit").addEventListener("click", function () {
+    var pts = Object.keys(pos).map(function (k) { return [pos[k].lat, pos[k].lon]; });
+    if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.4), { maxZoom: 9 });
+    else if (pts.length === 1) map.setView(pts[0], 7);
+  });
+  if (!$("key").value) setSource("Starting", "No live key set yet.", false);
+  connect();
+})();
+</script>
+</body>
+</html>
