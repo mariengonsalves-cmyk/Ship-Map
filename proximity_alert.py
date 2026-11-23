@@ -25,7 +25,7 @@ HER_SHIP = {"name": "Margaritaville at Sea Paradise", "mmsi": "311000969"}
 
 THRESHOLD_NM = float(os.environ.get("THRESHOLD_NM", "25"))
 HYSTERESIS_NM = 2.0  # must be this far outside the range before "left range" fires
-LISTEN_SECONDS = int(os.environ.get("LISTEN_SECONDS", "480"))
+LISTEN_SECONDS = int(os.environ.get("LISTEN_SECONDS", "270"))
 STATE_FILE = "state.json"
 POSITIONS_FILE = "positions.json"  # read by index.html (the live map page)
 EARTH_RADIUS_NM = 3440.065
